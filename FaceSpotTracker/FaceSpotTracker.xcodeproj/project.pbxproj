@@ -8,15 +8,20 @@
 
 /* Begin PBXBuildFile section */
 		294468EE7F5982C9300D3D79 /* FaceTrackingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10BD1368DA45A627CD9431E9 /* FaceTrackingManager.swift */; };
+		5935124F10FF7537C143040F /* ImageMarkerDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 485F7B95E06DF95FF49680D3 /* ImageMarkerDetector.swift */; };
 		885E05BB99BD7AA39B5FE0EE /* ARFaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E16CCC0F54578A98FFF88149 /* ARFaceView.swift */; };
 		8A275734CB7DF746F4A6A295 /* MarkedSpot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54B457C993850D6530B9B184 /* MarkedSpot.swift */; };
 		999045C9AE8EBAF5866DAE1C /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ED48526A05C29583B191609 /* ContentView.swift */; };
 		C02BE1CCDCFBF6DAE10FD4AC /* FaceSpotTrackerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF91CBF2B3DD139DB093B872 /* FaceSpotTrackerApp.swift */; };
 		A1B2C3D4E5F6789012345678 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A6978801234567 /* Assets.xcassets */; };
+		AA0000000000000000000003 /* LiveMarkerScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000001 /* LiveMarkerScanner.swift */; };
+		AA0000000000000000000004 /* MarkerPositionResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000002 /* MarkerPositionResolver.swift */; };
+		BB0000000000000000000005 /* SkinSpotDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000006 /* SkinSpotDetector.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		10BD1368DA45A627CD9431E9 /* FaceTrackingManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaceTrackingManager.swift; sourceTree = "<group>"; };
+		485F7B95E06DF95FF49680D3 /* ImageMarkerDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageMarkerDetector.swift; sourceTree = "<group>"; };
 		54B457C993850D6530B9B184 /* MarkedSpot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkedSpot.swift; sourceTree = "<group>"; };
 		89845534A3B6B5BAC43F7B4A /* FaceSpotTracker.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FaceSpotTracker.entitlements; sourceTree = "<group>"; };
 		8DD910041705CA4602B52E77 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -24,6 +29,9 @@
 		AF91CBF2B3DD139DB093B872 /* FaceSpotTrackerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaceSpotTrackerApp.swift; sourceTree = "<group>"; };
 		E16CCC0F54578A98FFF88149 /* ARFaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ARFaceView.swift; sourceTree = "<group>"; };
 		E690E55FDA2114487B1F2167 /* FaceSpotTracker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FaceSpotTracker.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA0000000000000000000001 /* LiveMarkerScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveMarkerScanner.swift; sourceTree = "<group>"; };
+		AA0000000000000000000002 /* MarkerPositionResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkerPositionResolver.swift; sourceTree = "<group>"; };
+		BB0000000000000000000006 /* SkinSpotDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinSpotDetector.swift; sourceTree = "<group>"; };
 		F1E2D3C4B5A6978801234567 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -53,8 +61,12 @@
 				89845534A3B6B5BAC43F7B4A /* FaceSpotTracker.entitlements */,
 				AF91CBF2B3DD139DB093B872 /* FaceSpotTrackerApp.swift */,
 				10BD1368DA45A627CD9431E9 /* FaceTrackingManager.swift */,
+				485F7B95E06DF95FF49680D3 /* ImageMarkerDetector.swift */,
 				8DD910041705CA4602B52E77 /* Info.plist */,
+				AA0000000000000000000001 /* LiveMarkerScanner.swift */,
+				AA0000000000000000000002 /* MarkerPositionResolver.swift */,
 				54B457C993850D6530B9B184 /* MarkedSpot.swift */,
+				BB0000000000000000000006 /* SkinSpotDetector.swift */,
 			);
 			path = FaceSpotTracker;
 			sourceTree = "<group>";
@@ -87,7 +99,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 1500;
+				LastUpgradeCheck = 2620;
 			};
 			buildConfigurationList = DC57CB8228701C98ACF83BDD /* Build configuration list for PBXProject "FaceSpotTracker" */;
 			developmentRegion = en;
@@ -117,7 +129,11 @@
 				999045C9AE8EBAF5866DAE1C /* ContentView.swift in Sources */,
 				C02BE1CCDCFBF6DAE10FD4AC /* FaceSpotTrackerApp.swift in Sources */,
 				294468EE7F5982C9300D3D79 /* FaceTrackingManager.swift in Sources */,
+				5935124F10FF7537C143040F /* ImageMarkerDetector.swift in Sources */,
+				AA0000000000000000000003 /* LiveMarkerScanner.swift in Sources */,
 				8A275734CB7DF746F4A6A295 /* MarkedSpot.swift in Sources */,
+				AA0000000000000000000004 /* MarkerPositionResolver.swift in Sources */,
+				BB0000000000000000000005 /* SkinSpotDetector.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -170,9 +186,10 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = C624J4S2F8;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -193,6 +210,7 @@
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.9;
@@ -205,7 +223,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = FaceSpotTracker/FaceSpotTracker.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = C624J4S2F8;
+				CURRENT_PROJECT_VERSION = 0.06;
 				INFOPLIST_FILE = FaceSpotTracker/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -223,7 +241,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = FaceSpotTracker/FaceSpotTracker.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = C624J4S2F8;
+				CURRENT_PROJECT_VERSION = 0.06;
 				INFOPLIST_FILE = FaceSpotTracker/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -270,9 +288,10 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = C624J4S2F8;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -286,6 +305,7 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.9;

@@ -43,6 +43,7 @@ struct ARFaceView: UIViewRepresentable {
         }
         
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
+            guard !trackingManager.isScanning else { return }
             let location = gesture.location(in: trackingManager.sceneView)
             trackingManager.handleTap(at: location)
         }
