@@ -16,7 +16,7 @@
 		A1B2C3D4E5F6789012345678 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A6978801234567 /* Assets.xcassets */; };
 		AA0000000000000000000003 /* LiveMarkerScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000001 /* LiveMarkerScanner.swift */; };
 		AA0000000000000000000004 /* MarkerPositionResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000002 /* MarkerPositionResolver.swift */; };
-		BB0000000000000000000005 /* SkinSpotDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000006 /* SkinSpotDetector.swift */; };
+		BB0000000000000000000005 /* QRMarkerDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000006 /* QRMarkerDetector.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -31,7 +31,7 @@
 		E690E55FDA2114487B1F2167 /* FaceSpotTracker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FaceSpotTracker.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA0000000000000000000001 /* LiveMarkerScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveMarkerScanner.swift; sourceTree = "<group>"; };
 		AA0000000000000000000002 /* MarkerPositionResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkerPositionResolver.swift; sourceTree = "<group>"; };
-		BB0000000000000000000006 /* SkinSpotDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinSpotDetector.swift; sourceTree = "<group>"; };
+		BB0000000000000000000006 /* QRMarkerDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRMarkerDetector.swift; sourceTree = "<group>"; };
 		F1E2D3C4B5A6978801234567 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -66,7 +66,7 @@
 				AA0000000000000000000001 /* LiveMarkerScanner.swift */,
 				AA0000000000000000000002 /* MarkerPositionResolver.swift */,
 				54B457C993850D6530B9B184 /* MarkedSpot.swift */,
-				BB0000000000000000000006 /* SkinSpotDetector.swift */,
+				BB0000000000000000000006 /* QRMarkerDetector.swift */,
 			);
 			path = FaceSpotTracker;
 			sourceTree = "<group>";
@@ -133,7 +133,7 @@
 				AA0000000000000000000003 /* LiveMarkerScanner.swift in Sources */,
 				8A275734CB7DF746F4A6A295 /* MarkedSpot.swift in Sources */,
 				AA0000000000000000000004 /* MarkerPositionResolver.swift in Sources */,
-				BB0000000000000000000005 /* SkinSpotDetector.swift in Sources */,
+				BB0000000000000000000005 /* QRMarkerDetector.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -223,7 +223,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = FaceSpotTracker/FaceSpotTracker.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 0.06;
+				CURRENT_PROJECT_VERSION = 0.07;
 				INFOPLIST_FILE = FaceSpotTracker/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -241,7 +241,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = FaceSpotTracker/FaceSpotTracker.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 0.06;
+				CURRENT_PROJECT_VERSION = 0.07;
 				INFOPLIST_FILE = FaceSpotTracker/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

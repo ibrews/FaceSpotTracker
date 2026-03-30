@@ -27,19 +27,18 @@ class FaceTrackingManager: NSObject, ObservableObject {
     @Published var backCameraFaceDetected = false
     @Published var backCameraMarkerScreenPos: CGPoint? = nil
 
-    // MARK: - Skin scan state (back camera, no marker required)
+    // MARK: - QR marker scan state (back camera)
     //
-    // Why back camera for skin analysis:
-    //   ARFaceTrackingConfiguration (which provides the face mesh and blendshapes) requires
-    //   the front-facing TrueDepth camera. The back camera only supports ARWorldTrackingConfiguration,
-    //   which gives world pose but NO face mesh. However, the back camera has much higher resolution
-    //   (~12MP vs TrueDepth's lower quality), making it better for skin texture analysis.
-    //   We use Vision's VNDetectFaceLandmarksRequest for 2D face detection, then SkinSpotDetector
-    //   for redness/inflammation analysis across multiple frames.
-    @Published var isSkinScanning = false
-    @Published var skinScanFrameCount = 0
-    @Published var skinScanCandidateCount = 0
-    @Published var skinScanHint = ""
+    // Why back camera for marker detection:
+    //   ARFaceTrackingConfiguration (face mesh + blendshapes) requires the front TrueDepth camera.
+    //   The back camera only supports ARWorldTrackingConfiguration — no face mesh.
+    //   But the back camera has higher resolution and ARKit's image tracking works only on it.
+    //   We use VNDetectBarcodesRequest for QR detection + VNDetectFaceLandmarksRequest for the
+    //   face reference, accumulating observations across multiple frames/angles.
+    @Published var isQRScanning = false
+    @Published var qrScanFrameCount = 0
+    @Published var qrScanMarkerCount = 0
+    @Published var qrScanHint = ""
 
     // MARK: - AR state
     let sceneView = ARSCNView()
@@ -59,8 +58,9 @@ class FaceTrackingManager: NSObject, ObservableObject {
     private var backCameraFaceObservation: VNFaceObservation?
     private var isRunningVisionFace = false
 
-    // MARK: - Skin scan internals
-    private var skinScanAccumulator = SkinScanAccumulator()
+    // MARK: - QR scan internals
+    private var qrDetector = QRMarkerDetector()
+    private var qrAccumulator = QRMarkerAccumulator()
 
     // MARK: - Init
 
@@ -457,21 +457,22 @@ class FaceTrackingManager: NSObject, ObservableObject {
         debugInfo = "Returned to front camera"
     }
 
-    // MARK: - Skin scan (back camera, no physical marker required)
+    // MARK: - QR marker scan (back camera)
 
-    /// Start a multi-frame skin scan using the back camera.
+    /// Start multi-frame QR marker detection using the back camera.
     ///
-    /// Unlike the marker-based back camera mode, this requires no physical sticker on the face.
-    /// The user points the back camera at the face (via mirror or a second person), and the app
-    /// accumulates frames, running redness/inflammation analysis to find potential spots.
-    func startSkinScan() {
+    /// The user places a small QR-code sticker on the spot they want to track, then
+    /// holds the phone with the back camera pointing at their face (via mirror or a helper).
+    /// Vision detects QR codes and face simultaneously, accumulating the QR's position
+    /// relative to the nose across multiple frames for a stable measurement.
+    func startQRScan() {
         guard ARWorldTrackingConfiguration.isSupported else {
             debugInfo = "World tracking not supported on this device"
             return
         }
 
         let config = ARWorldTrackingConfiguration()
-        // No ARReferenceImage needed — Vision handles face detection per-frame
+        // No ARReferenceImage needed — Vision handles QR + face detection per-frame
 
         faceNode = nil
         faceGeometryNode = nil
@@ -482,64 +483,68 @@ class FaceTrackingManager: NSObject, ObservableObject {
         backCameraFaceDetected = false
         backCameraMarkerScreenPos = nil
 
-        skinScanAccumulator.reset()
+        qrAccumulator.reset()
 
         sceneView.session.run(config, options: [.resetTracking, .removeExistingAnchors])
 
         isUsingBackCamera = true
-        isSkinScanning = true
+        isQRScanning = true
         isFaceTracked = false
-        skinScanFrameCount = 0
-        skinScanCandidateCount = 0
-        skinScanHint = "Point at the face — move slowly for full coverage"
-        debugInfo = "Skin scan active"
+        qrScanFrameCount = 0
+        qrScanMarkerCount = 0
+        qrScanHint = "Point at the face — look for the QR sticker"
+        debugInfo = "QR scan active"
     }
 
-    /// Finalize the skin scan: merge multi-frame candidates, place dots, return to front camera.
-    func stopSkinScan() {
-        let candidates = skinScanAccumulator.mergedCandidates()
-        skinScanAccumulator.reset()
+    /// Finalize the QR scan: average accumulated observations, place dots, return to front camera.
+    func stopQRScan() {
+        let markers = qrAccumulator.results(minFrames: 3)
+        qrAccumulator.reset()
 
-        isSkinScanning = false
+        isQRScanning = false
         isUsingBackCamera = false
-        skinScanFrameCount = 0
-        skinScanCandidateCount = 0
-        skinScanHint = ""
+        qrScanFrameCount = 0
+        qrScanMarkerCount = 0
+        qrScanHint = ""
 
         startSession()
 
-        guard !candidates.isEmpty else {
-            imageProcessingResult = "No spots detected — try in better lighting"
+        guard !markers.isEmpty else {
+            imageProcessingResult = "No markers captured — need QR + face visible for 3+ frames"
             debugInfo = imageProcessingResult
             return
         }
 
-        let captured = candidates
-        debugInfo = "Switching to front camera... placing \(captured.count) candidate(s)"
+        let captured = markers
+        debugInfo = "Switching to front camera... placing \(captured.count) marker(s)"
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-            self?.placeSkinCandidates(captured)
+            self?.placeQRMarkers(captured)
         }
     }
 
-    /// Cancel skin scan and return to front camera without placing anything.
-    func cancelSkinScan() {
-        skinScanAccumulator.reset()
-        isSkinScanning = false
+    /// Cancel QR scan and return to front camera without placing anything.
+    func cancelQRScan() {
+        qrAccumulator.reset()
+        isQRScanning = false
         isUsingBackCamera = false
-        skinScanFrameCount = 0
-        skinScanCandidateCount = 0
-        skinScanHint = ""
+        qrScanFrameCount = 0
+        qrScanMarkerCount = 0
+        qrScanHint = ""
         startSession()
-        debugInfo = "Skin scan cancelled"
+        debugInfo = "QR scan cancelled"
     }
 
-    /// Map merged skin candidates from back-camera face-bbox coords to face mesh positions.
-    private func placeSkinCandidates(_ candidates: [MergedSkinCandidate]) {
+    /// Map accumulated QR marker positions from nose-relative coords to face mesh vertices.
+    ///
+    /// The QR offset is in face-width units relative to the nose tip.
+    /// Face mesh: origin at nose, X right ±0.06m. Face width ~0.12m = 1.0 face-width unit.
+    /// So offsetFromNose * 0.12 ≈ meters in face-local X/Y.
+    private func placeQRMarkers(_ markers: [QRMarkerAccumulator.AccumulatedMarker]) {
         guard let faceAnchor = currentFaceAnchor else {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
                 guard let self else { return }
                 if self.currentFaceAnchor != nil {
-                    self.placeSkinCandidates(candidates)
+                    self.placeQRMarkers(markers)
                 } else {
                     self.debugInfo = "Face not detected — look at the front camera"
                     self.imageProcessingResult = "Could not place markers — face not found"
@@ -551,13 +556,22 @@ class FaceTrackingManager: NSObject, ObservableObject {
         let vertices = faceAnchor.geometry.vertices
         var placed = 0
 
-        for candidate in candidates {
-            // Vision face bbox: nose is approximately at normalized (0.50, 0.35) top-left origin.
-            // Face mesh local coords: origin at nose, X right ±0.06m, Y up +0.05 / down -0.07m.
-            // Back camera is not mirrored (unlike the front camera selfie view).
-            let meshX = Float(candidate.normalizedPosition.x - 0.5) * 0.12
-            let meshY = -Float(candidate.normalizedPosition.y - 0.35) * 0.16
+        for marker in markers {
+            // Convert nose-relative face-width units → face mesh local meters.
+            // Vision Y axis points up (bottom-left origin), face mesh Y also points up. Good.
+            // Vision X: from camera's perspective (back camera = not mirrored).
+            // Face mesh X: right from the face's perspective = left from camera's view.
+            // So we negate X to go from camera-view to face-local.
+            let meshX = -Float(marker.offsetFromNose.x) * 0.12
+            let meshY = Float(marker.offsetFromNose.y) * 0.12
             let meshPos = SIMD3<Float>(meshX, meshY, 0)
+
+            // Confidence based on frame count + spread
+            let frameScore = min(1.0, Float(marker.frameCount) / 15.0)
+            let spreadScore = max(0.0, 1.0 - Float(marker.offsetSpread) * 10.0)
+            let confidence = min(0.95, frameScore * 0.5 + spreadScore * 0.4 + 0.1)
+
+            let label = marker.payload.isEmpty ? "QR marker" : "QR: \(marker.payload)"
 
             if meshY < -0.065 {
                 let jawlineVerts = findJawlineVertices(vertices: vertices)
@@ -570,8 +584,8 @@ class FaceTrackingManager: NSObject, ObservableObject {
                     anchorVertexIndex: nearest.index,
                     anchorPosition: nearest.pos,
                     extrapolationOffset: offset,
-                    label: "Skin scan",
-                    confidence: candidate.confidence,
+                    label: label,
+                    confidence: confidence,
                     vertexDistance: simd_length(offset)
                 )
                 markedSpots.append(spot)
@@ -585,9 +599,9 @@ class FaceTrackingManager: NSObject, ObservableObject {
                     index: nextSpotIndex,
                     nearestVertexIndex: nearestIdx,
                     localPosition: vertices[nearestIdx],
-                    label: "Skin scan",
+                    label: label,
                     region: region,
-                    confidence: candidate.confidence,
+                    confidence: confidence,
                     vertexDistance: dist
                 )
                 markedSpots.append(spot)
@@ -602,8 +616,8 @@ class FaceTrackingManager: NSObject, ObservableObject {
         }
 
         imageProcessingResult = placed > 0
-            ? "Placed \(placed) skin spot(s) from scan"
-            : "No spots could be placed — face mesh not ready"
+            ? "Placed \(placed) spot(s) from QR scan"
+            : "Could not place markers — face mesh not ready"
         debugInfo = imageProcessingResult
     }
 
@@ -1043,9 +1057,9 @@ extension FaceTrackingManager: ARSessionDelegate {
     // MARK: Back camera frame processing
 
     private func handleBackCameraFrame(_ frame: ARFrame) {
-        // Route to skin scan handler when in that mode
-        if isSkinScanning {
-            handleSkinScanFrame(frame)
+        // Route to QR scan handler when in that mode
+        if isQRScanning {
+            handleQRScanFrame(frame)
             return
         }
 
@@ -1134,12 +1148,12 @@ extension FaceTrackingManager: ARSessionDelegate {
         }
     }
 
-    // MARK: Skin scan frame processing
+    // MARK: QR marker scan frame processing
 
-    /// Process one back-camera frame for the skin scan mode.
-    /// Detects the face with Vision, then runs SkinSpotDetector on the face region.
-    /// Accumulates results across frames; UI polls `skinScanCandidateCount` for progress.
-    private func handleSkinScanFrame(_ frame: ARFrame) {
+    /// Process one back-camera frame for QR marker detection.
+    /// Runs VNDetectBarcodesRequest + VNDetectFaceLandmarksRequest in a single handler,
+    /// then accumulates the QR-to-nose offset across frames.
+    private func handleQRScanFrame(_ frame: ARFrame) {
         guard !isRunningVisionFace else { return }
         isRunningVisionFace = true
 
@@ -1147,57 +1161,43 @@ extension FaceTrackingManager: ARSessionDelegate {
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             defer { self?.isRunningVisionFace = false }
-            guard let self, self.isSkinScanning else { return }
+            guard let self, self.isQRScanning else { return }
 
-            // Detect face in back-camera frame.
-            // Back camera in portrait locks to .right orientation for Vision.
-            let faceRequest = VNDetectFaceLandmarksRequest()
-            let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .right)
-
-            do {
-                try handler.perform([faceRequest])
-            } catch {
-                return
-            }
-
-            guard let faceObs = faceRequest.results?.first else {
-                DispatchQueue.main.async {
-                    self.backCameraFaceDetected = false
-                    self.skinScanHint = "No face found — aim camera at the face"
-                }
-                return
-            }
-
-            // Run skin analysis on this frame
-            let candidates = SkinSpotDetector.detectSpots(
-                in: pixelBuffer,
-                faceObservation: faceObs,
-                captureOrientation: .right
-            )
-
-            let scanFrame = SkinScanFrame(
-                candidates: candidates,
-                faceBBox: faceObs.boundingBox,
-                frameIndex: self.skinScanFrameCount
-            )
-            self.skinScanAccumulator.add(scanFrame)
-
-            let merged = self.skinScanAccumulator.mergedCandidates()
+            let observations = self.qrDetector.processFrame(pixelBuffer, orientation: .right)
 
             DispatchQueue.main.async {
-                self.backCameraFaceDetected = true
-                self.skinScanFrameCount += 1
-                self.skinScanCandidateCount = merged.count
-
-                let fc = self.skinScanFrameCount
-                if fc < 8 {
-                    self.skinScanHint = "Scanning... (\(fc) frames) — keep the face centered"
-                } else if merged.isEmpty {
-                    self.skinScanHint = "No anomalies detected yet — try different lighting or angle"
-                } else if merged.count == 1 {
-                    self.skinScanHint = "1 candidate found — keep scanning for better coverage"
+                if observations.isEmpty {
+                    // Check why — did we find a face but no QR, or neither?
+                    self.qrScanFrameCount += 1
+                    if !self.backCameraFaceDetected {
+                        self.qrScanHint = "No face found — aim back camera at the face"
+                    } else {
+                        self.qrScanHint = "Face found but no QR code — check sticker placement"
+                    }
+                    self.backCameraMarkerDetected = false
                 } else {
-                    self.skinScanHint = "\(merged.count) candidate spot(s) — tap Done when ready"
+                    self.qrAccumulator.add(observations)
+
+                    self.backCameraFaceDetected = true
+                    self.backCameraMarkerDetected = true
+                    self.qrScanFrameCount += 1
+
+                    let results = self.qrAccumulator.results(minFrames: 1)
+                    self.qrScanMarkerCount = results.count
+
+                    let bestFrames = results.map(\.frameCount).max() ?? 0
+                    if bestFrames < 3 {
+                        self.qrScanHint = "QR detected! Hold steady... (\(bestFrames)/3 frames)"
+                    } else if bestFrames < 10 {
+                        self.qrScanHint = "Good — slowly turn head for better coverage (\(bestFrames) frames)"
+                    } else {
+                        let spread = results.map(\.offsetSpread).max() ?? 0
+                        if spread < 0.03 {
+                            self.qrScanHint = "Excellent coverage! Tap Done to place."
+                        } else {
+                            self.qrScanHint = "\(results.count) marker(s), \(bestFrames) frames — keep going or tap Done"
+                        }
+                    }
                 }
             }
         }

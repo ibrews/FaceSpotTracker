@@ -21,14 +21,14 @@ struct ContentView: View {
                 )
             }
 
-            // Back camera overlay (marker-based scan)
-            if trackingManager.isUsingBackCamera && !trackingManager.isSkinScanning {
+            // Back camera overlay (marker-based scan via reference image)
+            if trackingManager.isUsingBackCamera && !trackingManager.isQRScanning {
                 BackCameraOverlayView(trackingManager: trackingManager)
             }
 
-            // Skin scan overlay (back camera, no marker required)
-            if trackingManager.isSkinScanning {
-                SkinScanOverlayView(trackingManager: trackingManager)
+            // QR marker scan overlay (back camera, Vision barcode detection)
+            if trackingManager.isQRScanning {
+                QRScanOverlayView(trackingManager: trackingManager)
             }
 
             // Overlay UI
@@ -149,11 +149,11 @@ struct ContentView: View {
                             }
                             .disabled(!trackingManager.isFaceTracked)
 
-                            // Skin scan: back camera redness analysis, no marker needed
+                            // QR marker scan: back camera, place a QR sticker on the spot
                             Button(action: {
-                                trackingManager.startSkinScan()
+                                trackingManager.startQRScan()
                             }) {
-                                Label("Skin Scan", systemImage: "camera.metering.spot")
+                                Label("QR Scan", systemImage: "qrcode.viewfinder")
                                     .font(.callout)
                                     .foregroundColor(.white)
                                     .padding(.horizontal, 12)
@@ -218,10 +218,10 @@ struct ContentView: View {
     }
 
     private var statusText: String {
-        if trackingManager.isSkinScanning {
-            let f = trackingManager.skinScanFrameCount
-            let c = trackingManager.skinScanCandidateCount
-            return "Skin Scan — \(f) frames, \(c) candidate(s)"
+        if trackingManager.isQRScanning {
+            let f = trackingManager.qrScanFrameCount
+            let m = trackingManager.qrScanMarkerCount
+            return "QR Scan — \(f) frames, \(m) marker(s)"
         } else if trackingManager.isUsingBackCamera {
             return "Back Camera — Marker Scan"
         } else if trackingManager.isFaceTracked {
@@ -332,13 +332,13 @@ struct BackCameraOverlayView: View {
     }
 }
 
-// MARK: - Skin Scan Overlay
+// MARK: - QR Scan Overlay
 
-/// Overlay shown during back-camera skin scan mode.
-/// The back camera provides higher-resolution images for skin analysis than the front
-/// TrueDepth camera can — but it doesn't have face mesh tracking (that requires the front
-/// camera). This mode uses Vision face detection + redness/HSV analysis across multiple frames.
-struct SkinScanOverlayView: View {
+/// Overlay shown during back-camera QR marker scan mode.
+/// The user places a small QR-code sticker on the spot to track, then points
+/// the back camera at their face. Vision detects the QR code + face landmarks
+/// simultaneously, accumulating position data across multiple frames.
+struct QRScanOverlayView: View {
     @ObservedObject var trackingManager: FaceTrackingManager
 
     var body: some View {
@@ -350,7 +350,17 @@ struct SkinScanOverlayView: View {
                         Image(systemName: trackingManager.backCameraFaceDetected
                               ? "face.smiling.inverse" : "face.dashed")
                             .foregroundColor(trackingManager.backCameraFaceDetected ? .green : .orange)
-                        Text(trackingManager.backCameraFaceDetected ? "Face found" : "No face")
+                        Text(trackingManager.backCameraFaceDetected ? "Face" : "No face")
+                            .font(.caption.bold())
+                            .foregroundColor(.white)
+                    }
+
+                    HStack(spacing: 6) {
+                        Image(systemName: trackingManager.backCameraMarkerDetected
+                              ? "qrcode" : "qrcode")
+                            .foregroundColor(trackingManager.backCameraMarkerDetected ? .green : .orange)
+                            .font(.caption)
+                        Text(trackingManager.backCameraMarkerDetected ? "QR found" : "No QR")
                             .font(.caption.bold())
                             .foregroundColor(.white)
                     }
@@ -358,19 +368,7 @@ struct SkinScanOverlayView: View {
                     Spacer()
 
                     HStack(spacing: 4) {
-                        Image(systemName: "waveform.path.ecg")
-                            .foregroundColor(.teal)
-                            .font(.caption)
-                        Text("\(trackingManager.skinScanFrameCount) frames")
-                            .font(.caption.bold())
-                            .foregroundColor(.white)
-                    }
-
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(trackingManager.skinScanCandidateCount > 0 ? Color.yellow : Color.gray)
-                            .frame(width: 8, height: 8)
-                        Text("\(trackingManager.skinScanCandidateCount) spot(s)")
+                        Text("\(trackingManager.qrScanFrameCount) frames")
                             .font(.caption.bold())
                             .foregroundColor(.white)
                     }
@@ -382,15 +380,15 @@ struct SkinScanOverlayView: View {
 
                 Spacer()
 
-                // Hint + explanation
+                // Hint
                 VStack(spacing: 8) {
-                    Text(trackingManager.skinScanHint)
+                    Text(trackingManager.qrScanHint)
                         .font(.callout)
                         .foregroundColor(.white)
                         .multilineTextAlignment(.center)
-                        .animation(.easeInOut, value: trackingManager.skinScanHint)
+                        .animation(.easeInOut, value: trackingManager.qrScanHint)
 
-                    Text("Back camera detects redness/inflammation — no sticker needed")
+                    Text("Place a QR sticker on the spot, then point back camera at face")
                         .font(.caption2)
                         .foregroundColor(.white.opacity(0.6))
                         .multilineTextAlignment(.center)
@@ -402,7 +400,7 @@ struct SkinScanOverlayView: View {
                 // Action buttons
                 HStack(spacing: 16) {
                     Button(action: {
-                        trackingManager.cancelSkinScan()
+                        trackingManager.cancelQRScan()
                     }) {
                         Label("Cancel", systemImage: "xmark")
                             .font(.callout)
@@ -414,11 +412,11 @@ struct SkinScanOverlayView: View {
                     }
 
                     Button(action: {
-                        trackingManager.stopSkinScan()
+                        trackingManager.stopQRScan()
                     }) {
                         Label(
-                            trackingManager.skinScanCandidateCount > 0
-                                ? "Place \(trackingManager.skinScanCandidateCount) Spot(s)"
+                            trackingManager.qrScanMarkerCount > 0
+                                ? "Place \(trackingManager.qrScanMarkerCount) Spot(s)"
                                 : "Done",
                             systemImage: "checkmark.circle.fill"
                         )
@@ -427,7 +425,7 @@ struct SkinScanOverlayView: View {
                         .padding(.horizontal, 20)
                         .padding(.vertical, 12)
                         .background(
-                            trackingManager.skinScanCandidateCount > 0
+                            trackingManager.qrScanMarkerCount > 0
                                 ? Color.teal.opacity(0.85)
                                 : Color.teal.opacity(0.4)
                         )
