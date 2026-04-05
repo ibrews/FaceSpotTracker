@@ -1,73 +1,42 @@
 import Foundation
 import UIKit
+import MediaPipeTasksGenAI
 
-// MARK: - On-Device Gemma 4 Inference Engine
+// MARK: - On-Device Gemma 4 E4B Inference Engine
 //
 // Architecture Decision (2026-04-05): Option C — on-device iPhone inference.
-// Model: Gemma 4 E4B (NOT E2B — crashes on iPhone 16 Pro, open bug #556 in google-ai-edge/gallery)
-// SDK: MediaPipe LLM Inference API (pod 'MediaPipeTasksGenAI')
-// Format: gemma-4-E4B-it-litert-lm.litertlm (3.65 GB on disk)
+// Model: gemma-4-E4B-it.litertlm (3.65 GB, NOT E2B — crashes on iPhone 16 Pro, bug #556)
+// SDK: MediaPipe LLM Inference API, pod 'MediaPipeTasksGenAI' 0.10.33
 //
-// Memory profile on iPhone 17 Pro (extrapolate down ~15% for iPhone 16 Pro):
-//   CPU backend: ~961 MB RAM, ~9.7 tok/s decode
-//   GPU backend: ~3,380 MB RAM, ~25.1 tok/s decode
+// Vision modality: enabled at session level via LlmInference.Session.Options.enableVisionModality
+// Session.addImage(image: CGImage) is available — takes a CGImage directly.
+// visionEncoderPath / visionAdapterPath are optional on LlmInference.Options;
+// Gemma 4 E4B may include vision components inside the .litertlm bundle (TBD on first run).
 //
-// The MediaPipe LLM Inference API is deprecated in favour of LiteRT-LM,
-// but LiteRT-LM Swift bindings are not yet released (as of April 2026).
-// We use MediaPipe for now; the interface here is designed so we can swap the
-// backend once LiteRT-LM Swift ships without touching call sites.
-//
-// Multimodal status: The LlmInferenceSession vision API exists on Android.
-// The iOS Swift mirror is unconfirmed in public docs. This file implements
-// both the session-based path (attempted at runtime) and a text-only fallback
-// (describe the image in the prompt). Mark the TODO below when the vision
-// session API is confirmed or denied on iOS.
-//
-// TODO(alex): Verify LlmInferenceSession + enableVisionModality on iOS once
-//             we can run this against a real device with the pod installed.
-//             Tracker: google-ai-edge/LiteRT-LM — watch Swift API release.
-
-// --------------------------------------------------------------------------
-// Conditional import: compiles without the pod present (e.g. in CI or
-// before 'pod install') so the rest of the project still builds.
-// Remove the #if block once the pod is integrated.
-// --------------------------------------------------------------------------
-#if canImport(MediaPipeTasksGenai)
-import MediaPipeTasksGenai
-#endif
+// If the model load fails (unsupported format): switch to gemma-3n-E2B-it-int4.task
+// from the nostalgic-dhawan branch which is confirmed working text-only.
 
 // MARK: - Result Types
 
 struct SkinAnalysisResult {
     let text: String
     let inferenceTimeSeconds: Double
-    let prefillTokensPerSecond: Double?
-    let decodeTokensPerSecond: Double?
-    let peakMemoryMB: Double?
     let usedVisionModality: Bool
 }
 
 enum InferenceError: LocalizedError {
     case modelNotFound(path: String)
-    case sdkNotAvailable
     case sessionCreationFailed(String)
-    case inferenceFailedWithoutVision
 
     var errorDescription: String? {
         switch self {
         case .modelNotFound(let path):
-            return "Model file not found at \(path). See MODEL_SETUP.md for download instructions."
-        case .sdkNotAvailable:
-            return "MediaPipe SDK not linked. Run 'pod install' and reopen the .xcworkspace."
+            return "Model file not found at:\n\(path)\n\nSee MODEL_SETUP.md for download instructions."
         case .sessionCreationFailed(let reason):
-            return "Session creation failed: \(reason)"
-        case .inferenceFailedWithoutVision:
-            return "Vision modality not available on this SDK version; using text-only fallback."
+            return "Session failed: \(reason)"
         }
     }
 }
-
-// MARK: - Engine State
 
 enum EngineState: Equatable {
     case unloaded
@@ -79,43 +48,29 @@ enum EngineState: Equatable {
 
 // MARK: - GemmaInferenceEngine
 
-/// Wraps MediaPipe LLM Inference to run Gemma 4 E4B on-device.
-///
-/// Usage:
-///   1. Call `loadModel()` once on app launch (or lazily before first inference).
-///   2. Call `analyzeSkinImage(_:)` with a UIImage from the camera.
-///   3. Observe `streamingOutput` for partial tokens and `lastResult` for the final result.
-///
-/// The model file must exist at `modelFileURL` before calling `loadModel()`.
-/// See MODEL_SETUP.md for download instructions.
 @MainActor
 final class GemmaInferenceEngine: ObservableObject {
 
     // MARK: - Configuration
 
-    /// Where the app expects to find the .litertlm model file.
-    /// We put it in Application Support (survives app updates, not backed up to iCloud by default).
     static let modelFileName = "gemma-4-E4B-it.litertlm"
 
     static var modelFileURL: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let modelsDir = appSupport.appendingPathComponent("Models", isDirectory: true)
-        return modelsDir.appendingPathComponent(modelFileName)
+        return appSupport
+            .appendingPathComponent("Models", isDirectory: true)
+            .appendingPathComponent(modelFileName)
     }
 
-    /// Maximum tokens in the generated response.
-    let maxOutputTokens = 512
-
-    /// Skin analysis system prompt — drives structured ABCDE output.
     static let skinAnalysisSystemPrompt = """
         You are a dermatology assistant helping users document skin spots for tracking over time. \
         You are NOT providing medical diagnoses. Always include a disclaimer.
 
         When shown a skin image, provide:
         1. DESCRIPTION: What you observe (color, shape, texture, size estimate, borders)
-        2. ABCDE CHECK: Brief assessment of Asymmetry, Border, Color variation, Diameter, Evolution (note you cannot assess Evolution from a single image)
-        3. RECOMMENDATION: Whether the user should monitor this spot, photograph it regularly, or consult a dermatologist
-        4. DISCLAIMER: Always end with "This is not medical advice. Consult a dermatologist for any concerns."
+        2. ABCDE CHECK: Asymmetry, Border, Color variation, Diameter, Evolution (note you cannot assess Evolution from one image)
+        3. RECOMMENDATION: Monitor, photograph regularly, or consult a dermatologist
+        4. DISCLAIMER: End with "This is not medical advice. Consult a dermatologist for any concerns."
 
         Be concise. Maximum 200 words.
         """
@@ -129,11 +84,9 @@ final class GemmaInferenceEngine: ObservableObject {
 
     // MARK: - Private
 
-    #if canImport(MediaPipeTasksGenai)
     private var llmInference: LlmInference?
-    #endif
 
-    // MARK: - Model availability check
+    // MARK: - Model availability
 
     var isModelFilePresent: Bool {
         FileManager.default.fileExists(atPath: Self.modelFileURL.path)
@@ -153,53 +106,42 @@ final class GemmaInferenceEngine: ObservableObject {
             return
         }
 
-        #if canImport(MediaPipeTasksGenai)
         state = .loading
         let start = Date()
 
         do {
-            let options = LlmInferenceOptions()
-            options.baseOptions.modelPath = Self.modelFileURL.path
-            options.maxTokens = maxOutputTokens
-            options.topk = 40
-            options.temperature = 0.7
-            options.randomSeed = 42
+            // LlmInference.Options — model-level config
+            let options = LlmInference.Options(modelPath: Self.modelFileURL.path)
+            options.maxTokens = 512
+            options.maxTopk = 40      // maxTopk on Options (GPU only; bounds session topk)
+            options.maxImages = 1     // allow image input in sessions
 
-            // Run on a background thread — model load blocks for several seconds
+            // visionEncoderPath / visionAdapterPath left unset:
+            // Gemma 4 E4B .litertlm may include vision components internally.
+            // If addImage() fails at inference time, we fall back to text-only.
+
             let inference = try await Task.detached(priority: .userInitiated) {
                 try LlmInference(options: options)
             }.value
 
-            self.llmInference = inference
-            self.loadTimeSeconds = Date().timeIntervalSince(start)
-            self.state = .ready
+            llmInference = inference
+            loadTimeSeconds = Date().timeIntervalSince(start)
+            state = .ready
         } catch {
-            self.state = .error("Model load failed: \(error.localizedDescription)")
+            state = .error("Model load failed: \(error.localizedDescription)")
         }
-        #else
-        state = .error(InferenceError.sdkNotAvailable.localizedDescription)
-        #endif
     }
 
     func unloadModel() {
-        #if canImport(MediaPipeTasksGenai)
         llmInference = nil
-        #endif
         state = .unloaded
         loadTimeSeconds = nil
     }
 
     // MARK: - Inference
 
-    /// Analyze a skin image. Streams partial tokens into `streamingOutput`.
-    /// Returns the final `SkinAnalysisResult` (also stored in `lastResult`).
-    ///
-    /// Image preprocessing applied automatically:
-    ///   - Resized to max 1024px on longest side (prevents OOM crash, see gallery issue #18)
-    ///   - Converted to JPEG at 0.8 quality for the base64 text path
     @discardableResult
     func analyzeSkinImage(_ image: UIImage) async throws -> SkinAnalysisResult {
-        #if canImport(MediaPipeTasksGenai)
         guard case .ready = state else {
             throw InferenceError.sessionCreationFailed("Engine not in ready state: \(state)")
         }
@@ -210,118 +152,134 @@ final class GemmaInferenceEngine: ObservableObject {
         state = .inferring
         streamingOutput = ""
         let inferenceStart = Date()
-
         defer { state = .ready }
 
-        // Preprocess: resize to ≤1024px to prevent OOM (documented crash in gallery issue #18)
+        // Preprocess: resize to ≤1024px (prevents OOM crash, gallery issue #18)
         let resized = image.resizedForInference(maxDimension: 1024)
 
-        // --- Attempt 1: Session-based vision modality ---
-        // The LlmInferenceSession API with enableVisionModality exists on Android.
-        // It may or may not be exposed in the iOS Swift bindings of this SDK version.
-        // We try it via reflection-style optional cast; fall through to text-only on failure.
-        //
-        // TODO(alex): Replace this try/catch with direct API call once we confirm
-        //             LlmInferenceSession.LlmInferenceSessionOptions exists on iOS.
         var usedVision = false
         var responseText = ""
 
-        // Vision session path (requires SDK version with multimodal session support)
-        // Uncomment and test once MediaPipeTasksGenAI pod is installed on device:
-        //
-        // let sessionOptions = LlmInferenceSession.LlmInferenceSessionOptions()
-        // sessionOptions.graphOptions.enableVisionModality = true
-        // if let session = try? LlmInferenceSession(llmInference: inference, options: sessionOptions),
-        //    let mpImage = try? MPImage(uiImage: resized) {
-        //     try session.addQueryChunk(Self.skinAnalysisSystemPrompt + "\n\nAnalyze this skin image:")
-        //     try session.addImage(mpImage)
-        //     responseText = try session.generateResponse()
-        //     usedVision = true
-        // }
+        // --- Session-based vision path ---
+        // enableVisionModality on Session.Options enables image input.
+        // addImage(image: CGImage) — confirmed in iOS SDK headers.
+        // visionEncoderPath / visionAdapterPath on Options are optional;
+        // Gemma 4 E4B may supply vision internally via the .litertlm format.
+        if let cgImage = resized.cgImage {
+            do {
+                let sessionOptions = LlmInference.Session.Options()
+                sessionOptions.topk = 40
+                sessionOptions.temperature = 0.7
+                sessionOptions.randomSeed = 42
+                sessionOptions.enableVisionModality = true
 
-        // --- Attempt 2: Text-only with base64 image (fallback) ---
-        // Some Gemma 4 implementations accept <image>base64...</image> tokens.
-        // Effectiveness depends on whether the runtime processes inline image data.
-        // If the model ignores the image block, the response quality degrades gracefully.
-        if !usedVision {
-            let prompt = buildTextOnlyPrompt(image: resized)
-            responseText = try await generateStreamingResponse(
-                inference: inference,
-                prompt: prompt
-            )
+                let session = try LlmInference.Session(llmInference: inference, options: sessionOptions)
+                try session.addQueryChunk(inputText: Self.skinAnalysisSystemPrompt + "\n\nAnalyze this skin spot:")
+                try session.addImage(image: cgImage)
+
+                responseText = try await streamingSessionResponse(session: session)
+                usedVision = true
+            } catch {
+                // Vision session failed — model may not include vision encoder.
+                // Fall through to text-only path.
+                streamingOutput = ""
+            }
         }
 
-        let elapsed = Date().timeIntervalSince(inferenceStart)
+        // --- Text-only fallback ---
+        if !usedVision {
+            let prompt = buildTextOnlyPrompt(image: resized)
+            responseText = try await streamingInferenceResponse(inference: inference, prompt: prompt)
+        }
+
         let result = SkinAnalysisResult(
             text: responseText,
-            inferenceTimeSeconds: elapsed,
-            prefillTokensPerSecond: nil,  // MediaPipe API doesn't expose these directly
-            decodeTokensPerSecond: nil,
-            peakMemoryMB: nil,
+            inferenceTimeSeconds: Date().timeIntervalSince(inferenceStart),
             usedVisionModality: usedVision
         )
         lastResult = result
         return result
-
-        #else
-        throw InferenceError.sdkNotAvailable
-        #endif
     }
 
-    // MARK: - Private helpers
+    // MARK: - Private streaming helpers
 
-    #if canImport(MediaPipeTasksGenai)
-    private func generateStreamingResponse(inference: LlmInference, prompt: String) async throws -> String {
-        return try await withCheckedThrowingContinuation { continuation in
+    private func streamingSessionResponse(session: LlmInference.Session) async throws -> String {
+        try await withCheckedThrowingContinuation { continuation in
             var accumulated = ""
             var didFinish = false
 
-            // MediaPipe async streaming API: callback fires for each partial token
-            inference.generateResponseAsync(inputText: prompt) { [weak self] partialResult, error in
-                guard let self else { return }
-
-                if let error {
-                    if !didFinish {
-                        didFinish = true
-                        continuation.resume(throwing: error)
+            do {
+                try session.generateResponseAsync(
+                    progress: { [weak self] partial, error in
+                        if let error, !didFinish {
+                            didFinish = true
+                            continuation.resume(throwing: error)
+                            return
+                        }
+                        if let partial {
+                            accumulated += partial
+                            Task { @MainActor [weak self] in
+                                self?.streamingOutput = accumulated
+                            }
+                        }
+                    },
+                    completion: {
+                        if !didFinish {
+                            didFinish = true
+                            continuation.resume(returning: accumulated)
+                        }
                     }
-                    return
-                }
-
-                if let partial = partialResult {
-                    accumulated += partial
-                    Task { @MainActor in
-                        self.streamingOutput = accumulated
-                    }
-                } else {
-                    // nil partialResult signals completion
-                    if !didFinish {
-                        didFinish = true
-                        continuation.resume(returning: accumulated)
-                    }
-                }
+                )
+            } catch {
+                continuation.resume(throwing: error)
             }
         }
     }
-    #endif
 
-    /// Build a text-only prompt that describes the task and embeds image data.
-    /// This is the fallback when the vision session API is unavailable.
+    private func streamingInferenceResponse(inference: LlmInference, prompt: String) async throws -> String {
+        try await withCheckedThrowingContinuation { continuation in
+            var accumulated = ""
+            var didFinish = false
+
+            do {
+                try inference.generateResponseAsync(
+                    inputText: prompt,
+                    progress: { [weak self] partial, error in
+                        if let error, !didFinish {
+                            didFinish = true
+                            continuation.resume(throwing: error)
+                            return
+                        }
+                        if let partial {
+                            accumulated += partial
+                            Task { @MainActor [weak self] in
+                                self?.streamingOutput = accumulated
+                            }
+                        }
+                    },
+                    completion: {
+                        if !didFinish {
+                            didFinish = true
+                            continuation.resume(returning: accumulated)
+                        }
+                    }
+                )
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+
     private func buildTextOnlyPrompt(image: UIImage) -> String {
-        // Encode image as base64 JPEG and wrap in a data URI.
-        // Gemma 4's multimodal tokenizer can parse this if the runtime supports it.
-        // Even if ignored, the text prompt alone produces a generic response.
         var imageBlock = ""
         if let jpeg = image.jpegData(compressionQuality: 0.75) {
-            let b64 = jpeg.base64EncodedString()
-            imageBlock = "\n<image_data>data:image/jpeg;base64,\(b64)</image_data>\n"
+            imageBlock = "\n<image_data>data:image/jpeg;base64,\(jpeg.base64EncodedString())</image_data>\n"
         }
-
         return """
             \(Self.skinAnalysisSystemPrompt)
             \(imageBlock)
-            Please analyze the skin spot or lesion shown in the image above. \
-            If no image data is available, respond with: "No image received — please try again."
+            Please analyze the skin spot or lesion in the image above. \
+            If no image data is available, respond: "No image received — please try again."
             """
     }
 }
@@ -329,17 +287,12 @@ final class GemmaInferenceEngine: ObservableObject {
 // MARK: - UIImage resize helper
 
 private extension UIImage {
-    /// Resize to fit within maxDimension × maxDimension, preserving aspect ratio.
-    /// Critical: prevents OOM crash documented in google-ai-edge/gallery issue #18
-    /// for large photos (e.g. 50 MP / ~200 MB uncompressed bitmap).
     func resizedForInference(maxDimension: CGFloat) -> UIImage {
         let longest = max(size.width, size.height)
         guard longest > maxDimension else { return self }
         let scale = maxDimension / longest
         let newSize = CGSize(width: size.width * scale, height: size.height * scale)
         let renderer = UIGraphicsImageRenderer(size: newSize)
-        return renderer.image { _ in
-            self.draw(in: CGRect(origin: .zero, size: newSize))
-        }
+        return renderer.image { _ in draw(in: CGRect(origin: .zero, size: newSize)) }
     }
 }
