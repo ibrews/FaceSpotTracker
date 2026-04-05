@@ -154,43 +154,16 @@ final class GemmaInferenceEngine: ObservableObject {
         let inferenceStart = Date()
         defer { state = .ready }
 
-        // Preprocess: resize to ≤1024px (prevents OOM crash, gallery issue #18)
-        let resized = image.resizedForInference(maxDimension: 1024)
-
-        var usedVision = false
-        var responseText = ""
-
-        // --- Session-based vision path ---
-        // enableVisionModality on Session.Options enables image input.
-        // addImage(image: CGImage) — confirmed in iOS SDK headers.
-        // visionEncoderPath / visionAdapterPath on Options are optional;
-        // Gemma 4 E4B may supply vision internally via the .litertlm format.
-        if let cgImage = resized.cgImage {
-            do {
-                let sessionOptions = LlmInference.Session.Options()
-                sessionOptions.topk = 40
-                sessionOptions.temperature = 0.7
-                sessionOptions.randomSeed = 42
-                sessionOptions.enableVisionModality = true
-
-                let session = try LlmInference.Session(llmInference: inference, options: sessionOptions)
-                try session.addQueryChunk(inputText: Self.skinAnalysisSystemPrompt + "\n\nAnalyze this skin spot:")
-                try session.addImage(image: cgImage)
-
-                responseText = try await streamingSessionResponse(session: session)
-                usedVision = true
-            } catch {
-                // Vision session failed — model may not include vision encoder.
-                // Fall through to text-only path.
-                streamingOutput = ""
-            }
-        }
-
-        // --- Text-only fallback ---
-        if !usedVision {
-            let prompt = buildTextOnlyPrompt(image: resized)
-            responseText = try await streamingInferenceResponse(inference: inference, prompt: prompt)
-        }
+        // Vision modality requires visionEncoderPath + visionAdapterPath in LlmInference.Options.
+        // Google has not yet released these files for Gemma 4 E4B in .task format (April 2026).
+        // Enabling enableVisionModality without them throws an ObjC NSException (not catchable
+        // in Swift). Text-only inference is the active path until encoder files are released.
+        // TODO(alex): Re-enable vision session once encoder/adapter paths are set in Options.
+        let responseText = try await streamingInferenceResponse(
+            inference: inference,
+            prompt: buildTextPrompt()
+        )
+        let usedVision = false
 
         let result = SkinAnalysisResult(
             text: responseText,
@@ -202,39 +175,6 @@ final class GemmaInferenceEngine: ObservableObject {
     }
 
     // MARK: - Private streaming helpers
-
-    private func streamingSessionResponse(session: LlmInference.Session) async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
-            var accumulated = ""
-            var didFinish = false
-
-            do {
-                try session.generateResponseAsync(
-                    progress: { [weak self] partial, error in
-                        if let error, !didFinish {
-                            didFinish = true
-                            continuation.resume(throwing: error)
-                            return
-                        }
-                        if let partial {
-                            accumulated += partial
-                            Task { @MainActor [weak self] in
-                                self?.streamingOutput = accumulated
-                            }
-                        }
-                    },
-                    completion: {
-                        if !didFinish {
-                            didFinish = true
-                            continuation.resume(returning: accumulated)
-                        }
-                    }
-                )
-            } catch {
-                continuation.resume(throwing: error)
-            }
-        }
-    }
 
     private func streamingInferenceResponse(inference: LlmInference, prompt: String) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
@@ -270,16 +210,17 @@ final class GemmaInferenceEngine: ObservableObject {
         }
     }
 
-    private func buildTextOnlyPrompt(image: UIImage) -> String {
-        var imageBlock = ""
-        if let jpeg = image.jpegData(compressionQuality: 0.75) {
-            imageBlock = "\n<image_data>data:image/jpeg;base64,\(jpeg.base64EncodedString())</image_data>\n"
-        }
+    private func buildTextPrompt() -> String {
+        // Text-only until vision encoder files are released by Google.
+        // The model gives a generic ABCDE framework response that the user
+        // can reference when examining the photo themselves.
         return """
             \(Self.skinAnalysisSystemPrompt)
-            \(imageBlock)
-            Please analyze the skin spot or lesion in the image above. \
-            If no image data is available, respond: "No image received — please try again."
+
+            The user has captured a photo of a skin spot for documentation. \
+            Since image analysis requires hardware vision components not yet available, \
+            provide a general guide for what to look for when examining the spot, \
+            structured using the ABCDE framework. Include the disclaimer.
             """
     }
 }
