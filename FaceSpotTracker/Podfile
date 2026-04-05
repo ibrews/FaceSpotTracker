@@ -1,0 +1,33 @@
+# Podfile for FaceSpotTracker
+# On-device Gemma 4 E4B inference via Google MediaPipe LLM Inference API
+#
+# SETUP:
+#   1. Install CocoaPods if not present: sudo gem install cocoapods
+#   2. Run: pod install
+#   3. Open: FaceSpotTracker.xcworkspace (NOT .xcodeproj)
+#
+# NOTE: MediaPipeTasksGenAI is officially deprecated in favour of LiteRT-LM,
+# but LiteRT-LM Swift bindings are not yet released (April 2026). Switch to
+# LiteRT-LM once its Swift Package is published:
+#   https://github.com/google-ai-edge/LiteRT-LM
+
+platform :ios, '17.0'
+
+use_frameworks!
+
+target 'FaceSpotTracker' do
+  # Google MediaPipe LLM Inference — on-device Gemma 4 E4B
+  # Deprecated (use LiteRT-LM when Swift API ships) but functional today.
+  pod 'MediaPipeTasksGenAI'
+  pod 'MediaPipeTasksGenAIC'
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '17.0'
+      # Silence deprecation warnings from the MediaPipe headers
+      config.build_settings['GCC_WARN_INHIBIT_ALL_WARNINGS'] = 'YES'
+    end
+  end
+end
