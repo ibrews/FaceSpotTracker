@@ -5,6 +5,7 @@ struct ContentView: View {
     @StateObject private var trackingManager = FaceTrackingManager()
     @State private var showingSpotList = false
     @State private var selectedPhoto: PhotosPickerItem?
+    @State private var showingAnalysis = false
 
     var body: some View {
         ZStack {
@@ -189,6 +190,17 @@ struct ContentView: View {
                                 .cornerRadius(8)
                         }
                         .disabled(trackingManager.markedSpots.isEmpty)
+
+                        // On-device AI analysis
+                        Button(action: { showingAnalysis = true }) {
+                            Label("Analyze", systemImage: "sparkles")
+                                .font(.callout)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(.indigo.opacity(0.85))
+                                .cornerRadius(8)
+                        }
                     }
                     .padding(.bottom, 30)
                 }
@@ -214,6 +226,9 @@ struct ContentView: View {
                 }
                 selectedPhoto = nil
             }
+        }
+        .sheet(isPresented: $showingAnalysis) {
+            SkinAnalysisView()
         }
     }
 

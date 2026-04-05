@@ -95,7 +95,7 @@ final class GemmaInferenceEngine: ObservableObject {
 
     /// Where the app expects to find the .litertlm model file.
     /// We put it in Application Support (survives app updates, not backed up to iCloud by default).
-    static let modelFileName = "gemma-4-E4B-it-litert-lm.litertlm"
+    static let modelFileName = "gemma-4-E4B-it.litertlm"
 
     static var modelFileURL: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
