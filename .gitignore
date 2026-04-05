@@ -1,0 +1,22 @@
+# Claude Code internal files
+.claude/
+
+# Large ML model files — re-download from HuggingFace if missing
+# Source: huggingface.co/realbyte/gemma-3n-E2B-it-int4-mediapipe
+FaceSpotTracker/FaceSpotTracker/Models/
+
+# CocoaPods
+FaceSpotTracker/Pods/
+FaceSpotTracker/FaceSpotTracker.xcworkspace/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# Xcode
+*.xcuserstate
+xcuserdata/
+DerivedData/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# macOS
+.DS_Store

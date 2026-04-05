@@ -198,10 +198,12 @@ struct ContentView: View {
             if showingSpotList {
                 SpotListView(
                     spots: trackingManager.markedSpots,
+                    analyzingSpotID: trackingManager.analyzingSpotID,
+                    skinAnalysisError: trackingManager.skinAnalysisError,
+                    engineLoaded: trackingManager.skinEngine.isLoaded,
                     onDismiss: { showingSpotList = false },
-                    onDelete: { spot in
-                        trackingManager.removeSpot(id: spot.id)
-                    }
+                    onDelete: { spot in trackingManager.removeSpot(id: spot.id) },
+                    onAnalyze: { spot in trackingManager.analyzeSpot(id: spot.id) }
                 )
             }
         }
@@ -443,11 +445,15 @@ struct QRScanOverlayView: View {
 
 struct SpotListView: View {
     let spots: [MarkedSpot]
+    let analyzingSpotID: UUID?
+    let skinAnalysisError: String?
+    let engineLoaded: Bool
     let onDismiss: () -> Void
     let onDelete: (MarkedSpot) -> Void
+    let onAnalyze: (MarkedSpot) -> Void
 
     var body: some View {
-        VStack {
+        VStack(spacing: 0) {
             HStack {
                 Text("Marked Spots")
                     .font(.headline)
@@ -456,6 +462,19 @@ struct SpotListView: View {
             }
             .padding()
 
+            if let error = skinAnalysisError {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                        .font(.caption)
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 6)
+            }
+
             if spots.isEmpty {
                 Text("No spots marked yet")
                     .foregroundColor(.secondary)
@@ -463,67 +482,185 @@ struct SpotListView: View {
             } else {
                 List {
                     ForEach(spots) { spot in
-                        HStack {
-                            ZStack {
-                                Circle()
-                                    .stroke(spot.confidenceColor, lineWidth: 2)
-                                    .frame(width: 22, height: 22)
-                                Circle()
-                                    .fill(spot.color)
-                                    .frame(width: 14, height: 14)
-                            }
+                        VStack(alignment: .leading, spacing: 6) {
+                            // Spot header row
+                            HStack {
+                                ZStack {
+                                    Circle()
+                                        .stroke(spot.confidenceColor, lineWidth: 2)
+                                        .frame(width: 22, height: 22)
+                                    Circle()
+                                        .fill(spot.color)
+                                        .frame(width: 14, height: 14)
+                                }
 
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack(spacing: 4) {
-                                    Text(spot.label ?? "Spot \(spot.index)")
-                                        .font(.body)
-                                    if spot.isExtrapolated {
-                                        Text("EXT")
-                                            .font(.system(size: 9, weight: .bold))
-                                            .foregroundColor(.white)
-                                            .padding(.horizontal, 4)
-                                            .padding(.vertical, 1)
-                                            .background(.orange)
-                                            .cornerRadius(3)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack(spacing: 4) {
+                                        Text(spot.label ?? "Spot \(spot.index)")
+                                            .font(.body)
+                                        if spot.isExtrapolated {
+                                            Text("EXT")
+                                                .font(.system(size: 9, weight: .bold))
+                                                .foregroundColor(.white)
+                                                .padding(.horizontal, 4)
+                                                .padding(.vertical, 1)
+                                                .background(.orange)
+                                                .cornerRadius(3)
+                                        }
+                                    }
+                                    Text("Vertex \(spot.nearestVertexIndex) \u{2022} \(spot.region.rawValue)")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    HStack(spacing: 4) {
+                                        Circle()
+                                            .fill(spot.confidenceColor)
+                                            .frame(width: 6, height: 6)
+                                        Text("\(spot.confidenceLabel) (\(Int(spot.confidence * 100))%)")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                        Text("\u{2022}")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                        Text(spot.createdAt, style: .relative)
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
                                     }
                                 }
-                                Text("Vertex \(spot.nearestVertexIndex) \u{2022} \(spot.region.rawValue)")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                HStack(spacing: 4) {
-                                    Circle()
-                                        .fill(spot.confidenceColor)
-                                        .frame(width: 6, height: 6)
-                                    Text("\(spot.confidenceLabel) confidence (\(Int(spot.confidence * 100))%)")
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
-                                    Text("\u{2022}")
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
-                                    Text(spot.createdAt, style: .relative)
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
-                                }
-                                if spot.vertexDistance > 0.001 {
-                                    Text(String(format: "\u{00B1}%.1fmm margin", spot.vertexDistance * 1000))
-                                        .font(.caption2)
-                                        .foregroundColor(spot.confidenceColor)
+                                Spacer()
+                                Button(action: { onDelete(spot) }) {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundColor(.red.opacity(0.7))
                                 }
                             }
-                            Spacer()
-                            Button(action: { onDelete(spot) }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(.red.opacity(0.7))
+
+                            // Analysis section
+                            if analyzingSpotID == spot.id {
+                                HStack(spacing: 6) {
+                                    ProgressView()
+                                        .scaleEffect(0.75)
+                                    Text("Analyzing with Gemma 4...")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.leading, 28)
+                            } else if let analysis = spot.skinAnalysis {
+                                SkinAnalysisResultView(analysis: analysis)
+                                    .padding(.leading, 28)
+
+                                Button(action: { onAnalyze(spot) }) {
+                                    Label("Re-analyze", systemImage: "arrow.clockwise")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.leading, 28)
+                                .disabled(!engineLoaded)
+                            } else {
+                                Button(action: { onAnalyze(spot) }) {
+                                    Label(
+                                        engineLoaded ? "Analyze with Gemma 4" : "Loading model...",
+                                        systemImage: "sparkle.magnifyingglass"
+                                    )
+                                    .font(.caption.bold())
+                                    .foregroundColor(engineLoaded ? .purple : .secondary)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(
+                                        engineLoaded
+                                            ? Color.purple.opacity(0.12)
+                                            : Color.secondary.opacity(0.08)
+                                    )
+                                    .cornerRadius(6)
+                                }
+                                .padding(.leading, 28)
+                                .disabled(!engineLoaded || analyzingSpotID != nil)
                             }
                         }
+                        .padding(.vertical, 4)
                     }
                 }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: 450)
+        .frame(maxWidth: .infinity, maxHeight: 560)
         .background(.ultraThinMaterial)
         .cornerRadius(16)
         .padding()
+    }
+}
+
+// MARK: - ABCDE Result Display
+
+struct SkinAnalysisResultView: View {
+    let analysis: SkinAnalysisResult
+
+    private var urgencyColor: Color {
+        switch analysis.urgency {
+        case .routine:      return .green
+        case .monitor:      return .yellow
+        case .promptReview: return .orange
+        case .urgentReview: return .red
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Urgency badge + timestamp
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(urgencyColor)
+                    .frame(width: 8, height: 8)
+                Text(analysis.urgency.rawValue)
+                    .font(.caption.bold())
+                    .foregroundColor(urgencyColor)
+                Spacer()
+                Text(analysis.analyzedAt, style: .date)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
+            // ABCDE rows
+            Group {
+                ABCDERow(letter: "A", label: "Asymmetry", value: analysis.asymmetry)
+                ABCDERow(letter: "B", label: "Border",    value: analysis.border)
+                ABCDERow(letter: "C", label: "Color",     value: analysis.color)
+                ABCDERow(letter: "D", label: "Diameter",  value: analysis.diameter)
+                ABCDERow(letter: "E", label: "Evolution", value: analysis.evolution)
+            }
+
+            // Overall assessment
+            Text(analysis.overallAssessment)
+                .font(.caption)
+                .foregroundColor(.primary.opacity(0.85))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .background(Color.secondary.opacity(0.08))
+        .cornerRadius(8)
+    }
+}
+
+struct ABCDERow: View {
+    let letter: String
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Text(letter)
+                .font(.system(size: 10, weight: .black, design: .rounded))
+                .foregroundColor(.white)
+                .frame(width: 16, height: 16)
+                .background(Color.purple.opacity(0.7))
+                .cornerRadius(3)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.secondary)
+                Text(value)
+                    .font(.caption2)
+                    .foregroundColor(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 

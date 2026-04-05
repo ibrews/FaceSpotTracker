@@ -62,12 +62,31 @@ class FaceTrackingManager: NSObject, ObservableObject {
     private var qrDetector = QRMarkerDetector()
     private var qrAccumulator = QRMarkerAccumulator()
 
+    // MARK: - Skin analysis
+    let skinEngine = SkinAnalysisEngine()
+    @Published var analyzingSpotID: UUID?
+    @Published var skinAnalysisError: String?
+
     // MARK: - Init
 
     override init() {
         super.init()
         markedSpots = SpotStore.load()
         nextSpotIndex = (markedSpots.map(\.index).max() ?? 0) + 1
+        loadSkinEngine()
+    }
+
+    private func loadSkinEngine() {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            do {
+                try self?.skinEngine.load()
+            } catch {
+                // Not fatal — engine will report error when user tries to analyze
+                DispatchQueue.main.async {
+                    self?.skinAnalysisError = error.localizedDescription
+                }
+            }
+        }
     }
 
     // MARK: - Session management
@@ -825,6 +844,92 @@ class FaceTrackingManager: NSObject, ObservableObject {
         SpotStore.save(markedSpots)
         imageProcessingResult = "Placed \(placedCount) spot(s) from image"
         debugInfo = imageProcessingResult
+    }
+
+    // MARK: - Skin analysis
+
+    /// Capture the spot's region from the live AR view and run Gemma 4 ABCDE analysis on it.
+    /// Must be called from the main thread (captures the current SceneView snapshot).
+    func analyzeSpot(id: UUID) {
+        guard let spot = markedSpots.first(where: { $0.id == id }) else { return }
+
+        guard skinEngine.isLoaded else {
+            skinAnalysisError = "Gemma 4 model not loaded. Check that the .task file is in the app bundle."
+            return
+        }
+
+        guard let image = captureSpotImage(for: spot) else {
+            skinAnalysisError = "Could not capture image — ensure face is visible and try again."
+            return
+        }
+
+        analyzingSpotID = id
+        skinAnalysisError = nil
+
+        Task {
+            do {
+                let result = try await skinEngine.analyze(image: image, spotID: id, region: spot.region)
+                await MainActor.run {
+                    if let idx = self.markedSpots.firstIndex(where: { $0.id == id }) {
+                        self.markedSpots[idx].skinAnalysis = result
+                        SpotStore.save(self.markedSpots)
+                    }
+                    self.analyzingSpotID = nil
+                }
+            } catch {
+                await MainActor.run {
+                    self.analyzingSpotID = nil
+                    self.skinAnalysisError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    /// Capture a cropped UIImage of the spot's location from the current AR view.
+    /// Returns nil if face tracking is unavailable.
+    private func captureSpotImage(for spot: MarkedSpot) -> UIImage? {
+        guard let faceAnchor = currentFaceAnchor else { return nil }
+
+        // Snapshot the current rendered AR frame
+        let snapshot = sceneView.snapshot()
+
+        // Compute the spot's world position from face-local coordinates
+        let faceTransform = faceAnchor.transform
+        let localPt: SIMD4<Float>
+        if spot.isExtrapolated,
+           let anchorIdx = spot.anchorVertexIndex,
+           let offset = spot.extrapolationOffset,
+           anchorIdx < faceAnchor.geometry.vertices.count {
+            let v = faceAnchor.geometry.vertices[anchorIdx]
+            localPt = SIMD4<Float>(v.x + offset.x, v.y + offset.y, v.z + offset.z, 1.0)
+        } else {
+            localPt = SIMD4<Float>(spot.localX, spot.localY, spot.localZ, 1.0)
+        }
+        let worldPos4 = faceTransform * localPt
+        let projected = sceneView.projectPoint(SCNVector3(worldPos4.x, worldPos4.y, worldPos4.z))
+        let center = CGPoint(x: CGFloat(projected.x), y: CGFloat(projected.y))
+
+        // Crop a 130×130pt region around the spot, clamped to view bounds
+        let cropSize: CGFloat = 130
+        let viewBounds = sceneView.bounds
+        let cropRect = CGRect(
+            x: center.x - cropSize / 2,
+            y: center.y - cropSize / 2,
+            width: cropSize,
+            height: cropSize
+        ).intersection(viewBounds)
+
+        guard cropRect.width > 20, cropRect.height > 20 else { return snapshot }
+
+        let scale = snapshot.scale
+        let scaledRect = CGRect(
+            x: cropRect.origin.x * scale,
+            y: cropRect.origin.y * scale,
+            width: cropRect.width * scale,
+            height: cropRect.height * scale
+        )
+        guard let cropped = snapshot.cgImage?.cropping(to: scaledRect) else { return snapshot }
+        return UIImage(cgImage: cropped, scale: scale, orientation: snapshot.imageOrientation)
     }
 
     // MARK: - Visual dot rendering

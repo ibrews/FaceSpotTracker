@@ -1,0 +1,10 @@
+platform :ios, '16.0'
+
+target 'FaceSpotTracker' do
+  use_frameworks!
+
+  # Google AI Edge — on-device LLM inference (Gemma 4 multimodal)
+  # After adding this file: cd FaceSpotTracker && pod install
+  # Then open FaceSpotTracker.xcworkspace (not .xcodeproj)
+  pod 'MediaPipeTasksGenAI'
+end

@@ -8,6 +8,9 @@ struct MarkedSpot: Identifiable, Codable {
     let index: Int
     let nearestVertexIndex: Int
 
+    // On-device Gemma 4 skin analysis (populated after user taps Analyze)
+    var skinAnalysis: SkinAnalysisResult?
+
     // Store as plain floats for Codable (SIMD3 doesn't conform)
     let localX: Float
     let localY: Float
@@ -151,6 +154,7 @@ struct MarkedSpot: Identifiable, Codable {
         extrapolationOffsetX = try c.decodeIfPresent(Float.self, forKey: .extrapolationOffsetX)
         extrapolationOffsetY = try c.decodeIfPresent(Float.self, forKey: .extrapolationOffsetY)
         extrapolationOffsetZ = try c.decodeIfPresent(Float.self, forKey: .extrapolationOffsetZ)
+        skinAnalysis = try c.decodeIfPresent(SkinAnalysisResult.self, forKey: .skinAnalysis)
     }
 }
 
