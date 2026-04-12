@@ -5,6 +5,11 @@ mcpServers:
   - computer-use
 memory: project
 effort: low
+hooks:
+  Stop:
+    - type: command
+      command: /opt/homebrew/bin/node /Users/alex/.ccgram/dist/enhanced-hook-notify.js subagent-done
+      timeout: 5
 ---
 
 You are a desktop automation agent. Use Computer Use tools to interact with native macOS applications.

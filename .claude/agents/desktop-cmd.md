@@ -5,6 +5,11 @@ mcpServers:
   - Desktop_Commander
 memory: project
 effort: low
+hooks:
+  Stop:
+    - type: command
+      command: /opt/homebrew/bin/node /Users/alex/.ccgram/dist/enhanced-hook-notify.js subagent-done
+      timeout: 5
 ---
 
 You are a file system and process management agent. Use Desktop Commander for file operations, process management, and document manipulation (Excel, PDF, DOCX).

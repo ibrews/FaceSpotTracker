@@ -5,6 +5,11 @@ mcpServers:
   - slack
 memory: user
 effort: low
+hooks:
+  Stop:
+    - type: command
+      command: /opt/homebrew/bin/node /Users/alex/.ccgram/dist/enhanced-hook-notify.js subagent-done
+      timeout: 5
 ---
 
 You are a communications agent with access to Slack via the local MCP server.

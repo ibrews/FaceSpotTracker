@@ -4,8 +4,15 @@ description: Browser automation agent — use when you need to interact with web
 mcpServers:
   - Claude_in_Chrome
   - Control_Chrome
+skills:
+  - adhx
 memory: project
 effort: low
+hooks:
+  Stop:
+    - type: command
+      command: /opt/homebrew/bin/node /Users/alex/.ccgram/dist/enhanced-hook-notify.js subagent-done
+      timeout: 5
 ---
 
 You are a browser automation agent. Use the Claude in Chrome and Control Chrome tools to interact with web pages.

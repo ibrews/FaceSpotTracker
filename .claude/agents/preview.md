@@ -5,6 +5,11 @@ mcpServers:
   - Claude_Preview
 memory: project
 effort: low
+hooks:
+  Stop:
+    - type: command
+      command: /opt/homebrew/bin/node /Users/alex/.ccgram/dist/enhanced-hook-notify.js subagent-done
+      timeout: 5
 ---
 
 You are a dev server preview agent. Use Claude Preview tools to start servers and verify changes.
